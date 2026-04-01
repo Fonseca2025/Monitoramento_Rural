@@ -1,29 +1,55 @@
-import os
 import telebot
-from flask import Flask, request
+import sqlite3
+import os
 
-TOKEN = os.environ.get('TELEGRAM_TOKEN')
+# 1. PEGAR O TOKEN: Mude para o seu token do @BotFather ou use Variável de Ambiente
+TOKEN = "SEU_TOKEN_AQUI" 
 bot = telebot.TeleBot(TOKEN)
-server = Flask(__name__)
 
-@bot.message_handler(commands=['start'])
-def start(message):
-    bot.reply_to(message, "Olá! O robô está funcionando no Render!")
+# --- BANCO DE DADOS ---
+def iniciar_db():
+    conn = sqlite3.connect('memoria.db', check_same_thread=False)
+    cursor = conn.cursor()
+    cursor.execute('''CREATE TABLE IF NOT EXISTS memoria 
+                      (chave TEXT PRIMARY KEY, valor TEXT)''')
+    conn.commit()
+    return conn
 
-# Rota para o Render não dar erro de porta e para o Webhook
-@server.route('/' + TOKEN, methods=['POST'])
-def getMessage():
-    json_string = request.get_data().decode('utf-8')
-    update = telebot.types.Update.de_json(json_string)
-    bot.process_new_updates([update])
-    return "!", 200
+db = iniciar_db()
 
-@server.route("/")
-def webhook():
-    bot.remove_webhook()
-    # Substitua pela sua URL do Render depois de criar o serviço
-    bot.set_webhook(url='https://seu-projeto.onrender.com/' + TOKEN)
-    return "Bot de pé!", 200
+# --- LÓGICA DO ROBÔ ---
 
-if __name__ == "__main__":
-    server.run(host="0.0.0.0", port=int(os.environ.get('PORT', 5000)))
+# Comando /salvar: Ex: /salvar cor favorita: azul
+@bot.message_handler(commands=['salvar'])
+def salvar(message):
+    try:
+        # Pega o texto após o comando e divide em Chave : Valor
+        conteudo = message.text.replace('/salvar ', '')
+        chave, valor = conteudo.split(':')
+        
+        cursor = db.cursor()
+        cursor.execute("INSERT OR REPLACE INTO memoria (chave, valor) VALUES (?, ?)", 
+                       (chave.strip().lower(), valor.strip()))
+        db.commit()
+        
+        bot.reply_to(message, f"✅ Entendi! Guardei que '{chave.strip()}' é '{valor.strip()}'.")
+    except:
+        bot.reply_to(message, "⚠️ Use o formato: /salvar termo: descrição")
+
+# Responder a perguntas (Qualquer mensagem que não seja comando)
+@bot.message_handler(func=lambda message: True)
+def responder(message):
+    pergunta = message.text.lower().strip()
+    
+    cursor = db.cursor()
+    cursor.execute("SELECT valor FROM memoria WHERE chave = ?", (pergunta,))
+    resultado = cursor.fetchone()
+    
+    if resultado:
+        bot.reply_to(message, f"🤖 Eu sei isso: {resultado[0]}")
+    else:
+        bot.reply_to(message, "🤔 Ainda não aprendi sobre isso. Use /salvar para me ensinar!")
+
+# Iniciar o Robô
+print("Robô ligado no Telegram...")
+bot.infinity_polling()

@@ -1,48 +1,29 @@
 import os
 import telebot
-import google.generativeai as genai
+from flask import Flask, request
 
-# Configurações (Use variáveis de ambiente por segurança no GitHub)
-TELEGRAM_TOKEN = os.getenv("8551592126:AAHGVr812nfEm2ipuH-CWlIt0B0rIE4nMlk")
-GEMINI_API_KEY = os.getenv("AIzaSyDYF90YUXyCaEjlnh1skBMap8mWM8uj62Q")
+TOKEN = os.environ.get('TELEGRAM_TOKEN')
+bot = telebot.TeleBot(TOKEN)
+server = Flask(__name__)
 
-# Inicializar APIs
-bot = telebot.TeleBot(TELEGRAM_TOKEN)
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-1.5-flash')
+@bot.message_handler(commands=['start'])
+def start(message):
+    bot.reply_to(message, "Olá! O robô está funcionando no Render!")
 
-# Aqui carregamos o texto do edital. 
-# DICA: Salve o texto do OCR que você me mandou em um arquivo chamado 'edital.txt'
-def carregar_edital():
-    with open("edital.txt", "r", encoding="utf-8") as f:
-        return f.read()
+# Rota para o Render não dar erro de porta e para o Webhook
+@server.route('/' + TOKEN, methods=['POST'])
+def getMessage():
+    json_string = request.get_data().decode('utf-8')
+    update = telebot.types.Update.de_json(json_string)
+    bot.process_new_updates([update])
+    return "!", 200
 
-CONTEUDO_EDITAL = carregar_edital()
+@server.route("/")
+def webhook():
+    bot.remove_webhook()
+    # Substitua pela sua URL do Render depois de criar o serviço
+    bot.set_webhook(url='https://seu-projeto.onrender.com/' + TOKEN)
+    return "Bot de pé!", 200
 
-@bot.message_handler(commands=['start', 'help'])
-def send_welcome(message):
-    bot.reply_to(message, "Olá! Sou o assistente do Edital 199/2025 (Montes Claros). O que você deseja saber sobre a licitação de videomonitoramento?")
-
-@bot.message_handler(func=lambda message: True)
-def responder_pergunta(message):
-    pergunta = message.text
-    
-    prompt = f"""
-    Você é um especialista em licitações. Com base no conteúdo do edital abaixo, responda à pergunta do usuário de forma clara e objetiva.
-    Se a informação não estiver no edital, diga que não encontrou.
-    
-    EDTAL:
-    {CONTEUDO_EDITAL[:30000]} # Limitando caracteres para performance
-    
-    PERGUNTA: {pergunta}
-    """
-    
-    try:
-        response = model.generate_content(prompt)
-        bot.reply_to(message, response.text)
-    except Exception as e:
-        bot.reply_to(message, "Erro ao processar. Tente novamente mais tarde.")
-        print(e)
-
-print("Bot rodando...")
-bot.infinity_polling()
+if __name__ == "__main__":
+    server.run(host="0.0.0.0", port=int(os.environ.get('PORT', 5000)))
